@@ -1,0 +1,158 @@
+#########################################################################################################################################################
+# /home/yuchen/miniconda3/envs/R4.0/bin/R
+library(Seurat)
+library(Signac)
+library(ComplexHeatmap)
+library(RColorBrewer)
+library(circlize)
+
+#########################################################################################################################################################
+cur_markers <- readRDS("/data3/yuhan/Project/Neuron/scMultiome/5_EN_regulatory_logic.newVersion.cleanedcell/SCPN_regulatorylogic/SCPNmarkersGene_CellType.rds")
+markersGene <- unique(cur_markers[which(cur_markers$p_val_adj<0.01 & abs(cur_markers$avg_log2FC)>0.25),"gene"])
+
+LINKobj <- readRDS("/data3/yuhan/Project/Neuron/scMultiome/3_CREgene_pair/obj.CREgene_pair.rds")
+genePeak_links <- Links(LINKobj[["peaks"]])
+genePeak_links <- genePeak_links[genePeak_links$score>0]
+genePeak_links <- genePeak_links[genePeak_links$gene %in% markersGene]
+
+ht_list <- readRDS("SCPN_ht_list.rds")
+RR <- row_order(ht_list)
+
+peakOrderDF <- data.frame()
+for (id in as.character(c(1,2,8,7,9,10,6,5,12,11,16,17,13,14,15))) {
+  peakOrderDF <- rbind(peakOrderDF,data.frame(KMid=id,linkNUM=RR[[id]]))
+}
+rownames(peakOrderDF) <- peakOrderDF$linkNUM #hanghao
+
+linkINFO <- data.frame(linkID=paste0("link_",c(1:length(genePeak_links))),gene=genePeak_links$gene,peak=genePeak_links$peak)
+linkINFO <- linkINFO[-deleteID,]
+linkINFO <- linkINFO[peakOrderDF$linkNUM,]
+linkINFO$KMid <- peakOrderDF$KMid
+linkINFO$heatmapRow <- c(1:nrow(linkINFO))
+
+linkINFO$KMnum <- "KM"
+linkINFO[which(linkINFO$KMid %in% c(1,2,8,7,9)),]$KMnum <- "KM1"
+linkINFO[which(linkINFO$KMid %in% c(10,6,5,12)),]$KMnum <- "KM2"
+linkINFO[which(linkINFO$KMid %in% c(11,16,17)),]$KMnum <- "KM3"
+linkINFO[which(linkINFO$KMid %in% c(13,14,15)),]$KMnum <- "KM4"
+intersect(c("TOP2A","MKI67","SOX2","PAX6","HES1","HES5","OLIG1","PTPRC","PDGFRB","GFAP","EOMES","TUBB3","NEUROD2","NEUROD6","BCL11B","LDB2","FEZF2","DIAPH3","FOXP2","TLE4","CRYM","SATB2","NRP1","CUX2","RORB","LMO4","LPL","RELN","GAD1","DLX1","LHX6","NR2F2"),unique(linkINFO[which(linkINFO$KMnum=="KM1"),]$gene))
+intersect(c("TOP2A","MKI67","SOX2","PAX6","HES1","HES5","OLIG1","PTPRC","PDGFRB","GFAP","EOMES","TUBB3","NEUROD2","NEUROD6","BCL11B","LDB2","FEZF2","DIAPH3","FOXP2","TLE4","CRYM","SATB2","NRP1","CUX2","RORB","LMO4","LPL","RELN","GAD1","DLX1","LHX6","NR2F2"),unique(linkINFO[which(linkINFO$KMnum=="KM2"),]$gene))
+intersect(c("TOP2A","MKI67","SOX2","PAX6","HES1","HES5","OLIG1","PTPRC","PDGFRB","GFAP","EOMES","TUBB3","NEUROD2","NEUROD6","BCL11B","LDB2","FEZF2","DIAPH3","FOXP2","TLE4","CRYM","SATB2","NRP1","CUX2","RORB","LMO4","LPL","RELN","GAD1","DLX1","LHX6","NR2F2"),unique(linkINFO[which(linkINFO$KMnum=="KM3"),]$gene))
+intersect(c("TOP2A","MKI67","SOX2","PAX6","HES1","HES5","OLIG1","PTPRC","PDGFRB","GFAP","EOMES","TUBB3","NEUROD2","NEUROD6","BCL11B","LDB2","FEZF2","DIAPH3","FOXP2","TLE4","CRYM","SATB2","NRP1","CUX2","RORB","LMO4","LPL","RELN","GAD1","DLX1","LHX6","NR2F2"),unique(linkINFO[which(linkINFO$KMnum=="KM4"),]$gene))
+ [1] "TOP2A"  "MKI67"  "SOX2"   "PAX6"   "HES1"   "HES5"   "PDGFRB" "DIAPH3"
+ [9] "TLE4"   "CUX2"
+ 
+ [1] "TOP2A"  "MKI67"  "SOX2"   "PAX6"   "HES1"   "HES5"   "GFAP"   "EOMES"
+ [9] "DIAPH3" "FOXP2"  "TLE4"   "NRP1"   "CUX2"
+
+ [1] "EOMES"   "NEUROD2" "NEUROD6" "BCL11B"  "FOXP2"   "SATB2"   "NRP1"
+ [8] "CUX2"    "LPL"     "RELN"
+
+ [1] "NEUROD2" "NEUROD6" "BCL11B"  "LDB2"    "FEZF2"   "TLE4"    "CRYM"
+ [8] "SATB2"   "LPL"
+
+saveRDS(linkINFO, file="linkINFO.rds")
+linkINFO <- readRDS("linkINFO.rds")
+
+#########################################################################################################################################################
+library(clusterProfiler)
+library(DOSE)
+library(org.Hs.eg.db)
+library(topGO)
+library(ggplot2)
+
+# zcat /home/yuhan/Software/cellranger-arc/refdata-cellranger-arc-GRCh38-2020-A-2.0.0/genes/genes.gtf.gz | awk -F'[ \t]' '$3=="gene"{print $10,$16;}' | sed -e 's/\"//g' -e 's/;//g' > geneID_geneName.txt
+geneID_geneName <- read.table("geneID_geneName.txt",col.names=c("ID","Name"))
+linkINFO <- readRDS("linkINFO.rds")
+
+linkINFO$KMnum <- "KM"
+linkINFO[which(linkINFO$KMid %in% c(1,2,8,7,9,10,6,5,12)),]$KMnum <- "KM1"
+linkINFO[which(linkINFO$KMid %in% c(11,16)),]$KMnum <- "KM2"
+linkINFO[which(linkINFO$KMid %in% c(17,13,14,15)),]$KMnum <- "KM3"
+
+df <- data_frame()
+for (KMnum in c("KM1","KM2","KM3")) {
+  GOgenes <- geneID_geneName[which(geneID_geneName$Name %in% unique(linkINFO[which(linkINFO$KMnum==KMnum),]$gene)),]$ID
+  gene_info <- bitr(as.character(GOgenes), fromType = "ENSEMBL", toType = c("ENTREZID"),OrgDb = "org.Hs.eg.db")
+  target_gene_id <- as.character(gene_info$ENTREZID)
+  length(unique(gene_info$ENSEMBL))
+  length(unique(target_gene_id))
+  ego_BP <- enrichGO(OrgDb="org.Hs.eg.db",
+                     gene = target_gene_id,
+                     qvalueCutoff = 0.05,
+                     ont = "BP",
+                     readable = TRUE)
+  
+  ego_result_BP <- as.data.frame(ego_BP)
+  ego_result_BP$KM <- KMnum
+  df <- rbind(df,ego_result_BP)
+}
+df <- df[which(df$qvalue < 0.01),]
+write.table(df, "ego_result_BP.xls", quote = F, sep = "\t", col.names = T, row.names = F)
+# setdiff(setdiff(df[which(df$KM=="KM3"),"Description"],df[which(df$KM=="KM1"),"Description"]),df[which(df$KM=="KM2"),"Description"])
+
+## PLOT
+ego_result_BP <- df[which(df$Description %in% c("nuclear division","positive regulation of cell cycle","neural precursor cell proliferation","glial cell differentiation","cell fate specification","positive regulation of dendrite morphogenesis","axonal fasciculation","neuron projection fasciculation","synapse maturation","regulation of synaptic plasticity","signal release from synapse","positive regulation of synaptic transmission","regulation of glutamate receptor signaling pathway","dendrite extension")),-8]
+# ego_result_BP <- df[which(df$ID %in% c("GO:0000280","GO:1901990","GO:0019827","GO:0050775","GO:2001222","GO:0006929","GO:0007215","GO:0048167","GO:0048846")),-8]
+go_enrich_df <- data.frame(Node=ego_result_BP$KM,ID=as.character(ego_result_BP$ID),
+                           Description=as.character(ego_result_BP$Description),
+                           Qval = ego_result_BP$qvalue,
+                           GeneNumber = ego_result_BP$Count)
+go_enrich_df$number <- factor(rev(1:nrow(go_enrich_df)))
+go_enrich_df$log10Q = -log10(go_enrich_df$Qval)
+go_enrich_df$padj <- ifelse(go_enrich_df$Qval < 0.05, '*', '')
+background<-(theme_bw()
+             +theme(axis.title.y = element_text(size = 16,vjust = 0.5, hjust = 0.5, colour = "black"))
+             +theme(axis.text.y =  element_text(size = 12,vjust = 0.5, hjust = 0.5, colour = "black"))
+             +theme(axis.title.x = element_text(size = 16,vjust = 0.5, hjust = 0.5, colour = "black"))
+             +theme(axis.text.x = element_text(size = 12,vjust = 0.5, hjust = 0.5, colour = "black"))
+             +theme(strip.text  = element_text(size = 10,vjust = 0.5, hjust = 0.5, colour = "black"))
+             +theme(axis.line = element_line(size = 0.5),legend.background = element_blank())
+             +theme(strip.background = element_rect(fill=NA,colour = NA))
+)
+ggplot(data = go_enrich_df, aes(x = number, y = log10Q, fill=Node)) +
+  geom_bar(stat="identity", width=0.8) + coord_flip() +
+  scale_fill_manual(values = c("#8DD3C7","#FDB462","#BEBADA","#80B1D3")) +
+  scale_x_discrete(labels=rev(go_enrich_df$Description)) +
+  xlab("") + ylab('-Log10(BH)') +
+  background +
+  theme(legend.background = element_blank(),
+        legend.text=element_text(size=14),
+        legend.position="top",
+        legend.title=element_blank(),
+        legend.key.size=unit(0.3,'cm')) +
+  geom_text(aes(label = padj), vjust=0.75, hjust = -0.25, color = 1)
+
+
+#########################################################################################################################################################
+# /home/yuchen/miniconda3/envs/R4.0/bin/R
+linkINFO <- readRDS("linkINFO.rds")
+linkINFO$KMnum <- "KM"
+linkINFO[which(linkINFO$KMid %in% c(12,15,18,17,19,20,14,16,13)),]$KMnum <- "KM1"
+linkINFO[which(linkINFO$KMid %in% c(3,1,2,9)),]$KMnum <- "KM2"
+linkINFO[which(linkINFO$KMid %in% c(5,6,4)),]$KMnum <- "KM3"
+write.table(linkINFO[,c("peak","KMnum")], "linkedPeak_SCPN.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+
+cat linkedPeak_SCPN.txt | grep "KM1" | cut -f1 | sed 's/-/\t/g' > KM1_peak.bed
+cat linkedPeak_SCPN.txt | grep "KM2" | cut -f1 | sed 's/-/\t/g' > KM2_peak.bed
+cat linkedPeak_SCPN.txt | grep "KM3" | cut -f1 | sed 's/-/\t/g' > KM3_peak.bed
+cat linkedPeak_SCPN.txt | cut -f1 | sed 's/-/\t/g' > universe_peak.bed
+
+## Obtaining Necessary Data
+/home/yuhan/Software/CBGR-jaspar_enrichment/bin/zenodo_fetch 5555937 -f hg38.tar.gz
+/home/yuhan/Software/CBGR-jaspar_enrichment/bin/zenodo_fetch 5555932 -f sacCer3.tar.gz
+tar -zxvf hg38.tar.gz
+
+## run in Management Node
+cd /home/yuhan/Software/CBGR-jaspar_enrichment
+Sbed="/data3/yuhan/Project/Neuron/scMultiome/5_regulation/KM1_peak.bed"
+Ubed="/data3/yuhan/Project/Neuron/scMultiome/5_regulation/universe_peak.bed"
+outputdir="/data3/yuhan/Project/Neuron/scMultiome/5_regulation/JASPAREnrichmentAnalysis"
+loladb_dir="/home/yuhan/Software/CBGR-jaspar_enrichment/sacCer3"
+API_URL="https://jaspar.genereg.net/api/v1/matrix/"
+n_cores=10
+/home/yuhan/Software/CBGR-jaspar_enrichment/bin/JASPAR_enrich.sh oneSetBg ${loladb_dir} ${Sbed} ${Ubed} ${outputdir} ${API_URL} ${n_cores}
+
+
+
+
